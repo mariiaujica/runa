@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
 import connectDB from "@/lib/mongodb";
 import Expense from "@/models/Expense";
+import { categorizeExpense } from "@/lib/aiCategorize";
+
 
 export async function POST(req: Request) {
     try{
@@ -15,7 +17,7 @@ export async function POST(req: Request) {
             .toString()
             .trim();
         
-        const category = body?.category
+        let category = body?.category
         ? String(body.category).trim()
         :"Uncategorized";
 
@@ -28,6 +30,11 @@ export async function POST(req: Request) {
         }
         if (description.length === 0) {
         return NextResponse.json({ error: "Description is required" }, { status: 400 });
+        }
+        //ask ai for a category if none uncotegorized
+        if(!body?.category || category ==="Uncategorized"){
+            category=await categorizeExpense(description);
+            console.log("AI choose category:", category);
         }
 
         //save to mongo using mongoose model
