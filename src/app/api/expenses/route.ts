@@ -65,3 +65,31 @@ export async function GET(){
 
 }
 
+//delete single expense by id
+export async function DELETE(req:Request){
+    try{
+        await connectDB()
+
+        //parse request body
+        const {id}=await req.json()
+
+        if (!id){
+            return NextResponse.json(
+                    {ok:false, error:'Missing id'},
+                    {status:400}
+            )
+        }
+            //delete from mongo
+            await Expense.findByIdAndDelete(id)
+
+            return NextResponse.json({ok:true})
+    }catch(err){
+        console.error('Deleteing expense error:', err)
+        return NextResponse.json(
+            {ok:false, eeror:'Server error'},
+            {status:500}
+        )
+    }
+    }
+
+
