@@ -59,14 +59,17 @@ fetchExpenses()
                 key={exp._id}
                 className="border border-slate-800 bg-slate-900 rounded-xl p-4 flex justify-between"
                 >
-        <div>
+        <div className="text-amber-400 font-semibold text-lg w-24 text-left">
+            {Number(exp.amount).toFixed(2)} kr           
+        </div>    
+        <div className="flex-1">
             <p className="font-medium text-slate-100">{exp.description}</p>
             <p className="text-sm text-slate-500">{exp.category}</p>
             </div>
             {/*Delete btn*/}
             <button
             onClick={()=>handleDelete(exp._id)}
-            className="text-amber-500 hover:text-amber-400 text-sm"
+            className="text-slate-100 hover:text-amber-400 text-sm"
             >
                 Delete
             </button>

@@ -1,7 +1,7 @@
 'use client'
-import { useState } from 'react'
+import { useState, useRef } from 'react'
 
-// accept the callback prop from parent
+// Accept callback from parent
 export default function ExpenseInput({
   onExpenseAdded,
 }: {
@@ -9,43 +9,100 @@ export default function ExpenseInput({
 }) {
   const [amount, setAmount] = useState('')
   const [description, setDescription] = useState('')
-  const [category, setCategory]=useState('')
-  const [recording, setRecording]=useState(false)
+  const [category, setCategory] = useState('')
+  const [recording, setRecording] = useState(false)
 
-  const startListening=()=>{
-    //check if browser even supports it
-    const SpeechRecognition=
-    (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition
+  // 🔥 ADDED: store recognition instance
+  const recognitionRef = useRef<SpeechRecognition | null>(null)
 
-    if(!SpeechRecognition) {
-        alert('Sorry, your browser does not support speech recognition.')
-        return
+  // 🔥 ADDED: stop listening
+  const stopListening = () => {
+    if (recognitionRef.current) {
+      recognitionRef.current.stop()
     }
-    const recognition=new SpeechRecognition()
-    recognition.lang='en-US'
-    recognition.interimResults=false
-    recognition.maxAlternatives=1
+    setRecording(false)
+  }
+
+  // speech recognition setup
+  const startListening = () => {
+    const SpeechRecognitionConstructor =
+      window.SpeechRecognition || window.webkitSpeechRecognition
+
+    if (!SpeechRecognitionConstructor) {
+      alert('Sorry, your browser does not support speech recognition.')
+      return
+    }
+
+    // 🔥 create recognition and save to ref
+    const recognition = new SpeechRecognitionConstructor()
+    recognitionRef.current = recognition
+
+    let finalTranscript = '' // 🔥 ADDED
+
+    recognition.lang = 'en-US'
+    recognition.interimResults = true // 🔥 continuous speech
+    recognition.continuous = true // 🔥 keeps listening through pauses
+    recognition.maxAlternatives = 1
 
     recognition.start()
     setRecording(true)
 
-    recognition.onresult=(event:any)=>{
-        const transcript=event.results [0][0].transcript
-        console.log('Heard:',transcript)
-        setDescription(transcript)
-        setRecording(false)
+    // 🔥 NEW continuous mode logic
+    recognition.onresult = async (event: SpeechRecognitionEvent) => {
+      for (let i = event.resultIndex; i < event.results.length; i++) {
+        const result = event.results[i]
+        if (result.isFinal) {
+          finalTranscript += result[0].transcript + ' '
+        }
+      }
 
+      // live preview
+      setDescription(finalTranscript.trim())
     }
 
-    recognition.onerror=(err:any)=>{
-        console.error('SPeech recognition error:', err)
-        setRecording(false)
+    // When user STOPS speaking (or presses Stop)
+    recognition.onend = async () => {
+      setRecording(false)
+
+      if (!finalTranscript.trim()) return
+
+      // send full transcript to AI backend
+      try {
+        const aiRes = await fetch('/api/voice', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ transcript: finalTranscript }),
+        })
+
+        const data = await aiRes.json()
+        console.log('AI Parsed:', data)
+
+        if (data.ok && Array.isArray(data.expenses)) {
+          for (const exp of data.expenses) {
+            await fetch('/api/expenses', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify(exp),
+            })
+          }
+          onExpenseAdded()
+          //Reset inputs after voice mode finishes
+          setAmount('')
+          setDescription('')
+          setCategory('')
+        }
+      } catch (err) {
+        console.error('Error sending voice transcript:', err)
+      }
     }
-    recognition.onend=()=>setRecording(false)
+
+    recognition.onerror = (event: SpeechRecognitionErrorEvent) => {
+      console.error('Speech recognition error:', event.error)
+      setRecording(false)
+    }
   }
 
-  //submit to backend
-
+  // manual submit for typing
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
 
@@ -58,13 +115,12 @@ export default function ExpenseInput({
 
       const data = await res.json()
       if (data.ok) {
-        onExpenseAdded() // tell parent to refresh
+        onExpenseAdded()
       }
     } catch (err) {
       console.error('Error adding expense:', err)
     }
 
-    // Clear form after submission
     setAmount('')
     setDescription('')
     setCategory('')
@@ -72,6 +128,18 @@ export default function ExpenseInput({
 
   return (
     <form onSubmit={handleSubmit} className="space-y-4">
+
+      {/* 🎤 ONE MIC BUTTON FOR THE WHOLE INPUT */}
+      <button
+        type="button"
+        onClick={recording ? stopListening : startListening}
+        className={`px-3 rounded-lg ${
+          recording ? 'bg-red-600' : 'bg-amber-600'
+        } text-white`}
+      >
+        {recording ? '🛑 Stop' : '🎤 Talk'}
+      </button>
+
       {/* Amount input */}
       <div>
         <label
@@ -88,7 +156,7 @@ export default function ExpenseInput({
           onChange={(e) => setAmount(e.target.value)}
           placeholder="20.00"
           required
-          className="w-full bg-slate-900 border border-slate-700 rounded-lg px-4 py-3 text-slate-100 placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-amber-600"
+          className="w-full bg-slate-900 border border-slate-700 rounded-lg px-4 py-3 text-slate-100"
         />
       </div>
 
@@ -100,27 +168,17 @@ export default function ExpenseInput({
         >
           What was it for?
         </label>
-        <div className="flex gap-2">
-    <input
-      id="description"
-      type="text"
-      value={description}
-      onChange={(e) => setDescription(e.target.value)}
-      placeholder="Coffee at Starbucks"
-      required
-      className="flex-1 bg-slate-900 border border-slate-700 rounded-lg px-4 py-3 text-slate-100 placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-amber-600"
-    />
-    {/* 🎤 NEW mic button */}
-    <button
-      type="button"
-      onClick={startListening}
-      className={`px-3 rounded-lg ${recording ? 'bg-red-600' : 'bg-amber-600'} text-white`}
-    >
-      {recording ? '🎙️...' : '🎤'}
-    </button>
-  </div>
-
+        <input
+          id="description"
+          type="text"
+          value={description}
+          onChange={(e) => setDescription(e.target.value)}
+          placeholder="Coffee at Starbucks"
+          required
+          className="w-full bg-slate-900 border border-slate-700 rounded-lg px-4 py-3 text-slate-100"
+        />
       </div>
+
       {/* Category input */}
       <div>
         <label
@@ -135,7 +193,7 @@ export default function ExpenseInput({
           value={category}
           onChange={(e) => setCategory(e.target.value)}
           placeholder="Food, Transport, etc..."
-          className="w-full bg-slate-900 border border-slate-700 rounded-lg px-4 py-3 text-slate-100 placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-amber-600"
+          className="w-full bg-slate-900 border border-slate-700 rounded-lg px-4 py-3 text-slate-100"
         />
       </div>
 
